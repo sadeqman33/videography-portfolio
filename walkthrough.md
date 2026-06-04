@@ -83,3 +83,7 @@
   [videography-portfolio-five.vercel.app](https://videography-portfolio-five.vercel.app)
 * **النشر التلقائي (CI/CD)**: بمجرد عمل أي تعديل جديد ودفعه لمستودع GitHub، سيقوم Vercel بإعادة بناء ونشر الموقع تلقائياً.
 
+## 📊 تحليلات ويب فيرسل الرسمية (Vercel Web Analytics)
+* **تثبيت حزمة `@vercel/analytics`**: تم تثبيت حزمة تحليلات فيرسل الرسمية وإضافتها لـ `package.json`.
+* **تفعيل التتبع**: تم استدعاء عنصر `<Analytics />` ودمجه داخل ملف التشغيل الرئيسي `src/main.jsx` للبدء في تتبع الزوار والزيارات والصفحات الأكثر تفاعلاً فور تفعيلها من لوحة تحكم Vercel الخاصة بالمشروع.
+
