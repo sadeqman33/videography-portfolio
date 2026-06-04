@@ -76,3 +76,10 @@
 * **بناء ناجح بنسبة 100%**: تم بناء المشروع وتجميعه (`npm run build`) بنجاح تام بدون أي أخطاء أو تحذيرات.
 * **مزامنة كاملة وشاملة**: تم عمل مزامنة وتزامن كاملين لكافة ملفات المشروع (بما في ذلك ملفات المصدر، والشعار الجديد `logo.svg` والمشروع المبني `dist`) إلى مجلدك الشخصي في التنزيلات: [videography-portfolio](file:///Users/sadeq002/Downloads/videography-portfolio).
 
+## 🚀 الرفع والنشـر (GitHub & Vercel Deployment)
+* **رابط مستودع GitHub**: تم إنشاء مستودع عام ورفع الكود بالكامل إلى:
+  [github.com/sadeqman33/videography-portfolio](https://github.com/sadeqman33/videography-portfolio)
+* **رابط النشر على Vercel**: تم ربط المستودع ونشر الموقع بنجاح على منصة Vercel ليكون متاحاً للجمهور على الرابط السريع:
+  [videography-portfolio-five.vercel.app](https://videography-portfolio-five.vercel.app)
+* **النشر التلقائي (CI/CD)**: بمجرد عمل أي تعديل جديد ودفعه لمستودع GitHub، سيقوم Vercel بإعادة بناء ونشر الموقع تلقائياً.
+
