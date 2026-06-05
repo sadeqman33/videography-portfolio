@@ -58,7 +58,7 @@ export default function Booking() {
                                 value={formData.phone}
                                 onChange={handleChange}
                                 required
-                                className="w-full bg-white/[0.02] border border-white/10 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-white focus:ring-1 focus:ring-white transition-all text-sm text-right"
+                                className="w-full bg-white/[0.02] border border-white/10 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-white focus:ring-1 focus:ring-white transition-all text-sm text-left [direction:ltr]"
                                 placeholder="077X XXX XXXX"
                             />
                         </div>
@@ -125,9 +125,9 @@ export default function Booking() {
                                 value={formData.date}
                                 onChange={handleChange}
                                 required
-                                className="w-full bg-white/[0.02] border border-white/10 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-white focus:ring-1 focus:ring-white transition-all text-sm [&::-webkit-calendar-picker-indicator]:opacity-0"
+                                className="w-full bg-white/[0.02] border border-white/10 rounded-xl pl-4 pr-12 py-3.5 text-white focus:outline-none focus:border-white focus:ring-1 focus:ring-white transition-all text-sm text-right relative z-10 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:cursor-pointer"
                             />
-                            <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400 pointer-events-none" />
+                            <Calendar className="absolute right-4 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-neutral-400 pointer-events-none z-20" />
                         </div>
                     </div>
 
