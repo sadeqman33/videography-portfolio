@@ -43,7 +43,7 @@ function App() {
             </li>
             <li>
               <a 
-                href="https://app-mu-two-51.vercel.app/calculator/estimate" 
+                href="https://sadeqinvosystem.vercel.app/calculator/estimate" 
                 target="_blank" 
                 rel="noopener noreferrer" 
                 className="hover:text-white transition-colors text-white font-black bg-white/10 px-3 py-1.5 rounded-full border border-white/10 hover:bg-white/20 flex items-center gap-1 shrink-0"

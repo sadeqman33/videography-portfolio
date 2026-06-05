@@ -2,7 +2,7 @@ import React from 'react';
 import { Calculator, ArrowLeft, CheckCircle2, Cpu, FileText, Send } from 'lucide-react';
 
 export default function CalculatorPromo() {
-    const calculatorUrl = "https://app-mu-two-51.vercel.app/calculator/estimate";
+    const calculatorUrl = "https://sadeqinvosystem.vercel.app/calculator/estimate";
 
     return (
         <section id="calculator-promo" className="py-24 bg-[#050505] border-t border-white/5 relative overflow-hidden" dir="rtl">
