@@ -104,6 +104,7 @@ export default function Dashboard({ onBackToSite }) {
     const [editThumbPreview, setEditThumbPreview] = useState('');
     const [editVisible, setEditVisible] = useState(true);
     const [isSavingEdit, setIsSavingEdit] = useState(false);
+    const [isExtractingEditThumb, setIsExtractingEditThumb] = useState(false);
 
     // AI Course Form State
     const [aiForm, setAiForm] = useState({ ...aiCourse });
@@ -252,6 +253,51 @@ export default function Dashboard({ onBackToSite }) {
             setEditThumbPreview(URL.createObjectURL(file));
         } else {
             setEditThumbPreview('');
+        }
+    };
+
+    // Handle Auto-Capture for Editing video
+    const handleAutoCaptureForEdit = async (seconds = 1.0) => {
+        if (!editingVideo) return;
+        const videoSrc = editingVideo.videoBlobKey && customMediaUrls[editingVideo.videoBlobKey]
+            ? customMediaUrls[editingVideo.videoBlobKey]
+            : (editingVideo.videoUrl || editingVideo.previewUrl || (!editingVideo.isCustom && editingVideo.slug ? `/videos/${editingVideo.slug}/video.mp4` : ''));
+
+        if (!videoSrc) {
+            alert('لا يوجد ملف أو رابط فيديو متاح لالتقاط الغلاف منه.');
+            return;
+        }
+
+        setIsExtractingEditThumb(true);
+        try {
+            const res = await captureVideoFrame(videoSrc, seconds);
+            setEditThumbFile(res.blob);
+            setEditThumbPreview(res.previewUrl);
+        } catch (err) {
+            console.warn('Edit thumbnail extraction failed:', err);
+            alert('تعذر التقاط لقطة من الفيديو تلقائياً. يمكنك رفع صورة غلاف يدوياً.');
+        } finally {
+            setIsExtractingEditThumb(false);
+        }
+    };
+
+    // Handle Auto-Capture for URL in Add Video Modal
+    const handleUrlThumbnailCapture = async (seconds = 1.0) => {
+        if (!videoUrlInput.trim()) {
+            alert('يرجى إدخال رابط فيديو صالح أولاً.');
+            return;
+        }
+
+        setIsExtractingThumb(true);
+        try {
+            const res = await captureVideoFrame(videoUrlInput.trim(), seconds);
+            setAutoThumbBlob(res.blob);
+            setAutoThumbPreview(res.previewUrl);
+        } catch (err) {
+            console.warn('URL thumbnail extraction failed:', err);
+            alert('تعذر استخراج الغلاف تلقائياً من هذا الرابط. يمكنك رفع صورة غلاف يدوياً.');
+        } finally {
+            setIsExtractingThumb(false);
         }
     };
 
@@ -909,7 +955,11 @@ export default function Dashboard({ onBackToSite }) {
                             {videos.map((vid, index) => {
                                 const thumbSrc = vid.thumbBlobKey && customMediaUrls[vid.thumbBlobKey]
                                     ? customMediaUrls[vid.thumbBlobKey]
-                                    : vid.thumbnailUrl || (vid.slug ? `/videos/${vid.slug}/thumbnail.jpg` : '');
+                                    : vid.thumbnailUrl || (!vid.isCustom && vid.slug ? `/videos/${vid.slug}/thumbnail.jpg` : '');
+
+                                const videoSrc = vid.videoBlobKey && customMediaUrls[vid.videoBlobKey]
+                                    ? customMediaUrls[vid.videoBlobKey]
+                                    : vid.videoUrl || vid.previewUrl || (!vid.isCustom && vid.slug ? `/videos/${vid.slug}/video.mp4` : '');
 
                                 const isHidden = vid.visible === false;
 
@@ -923,6 +973,17 @@ export default function Dashboard({ onBackToSite }) {
                                         <div className="relative aspect-[16/10] rounded-2xl overflow-hidden bg-black mb-4 border border-white/5">
                                             {thumbSrc ? (
                                                 <img src={thumbSrc} alt={vid.title} className="w-full h-full object-cover" />
+                                            ) : videoSrc ? (
+                                                <video
+                                                    src={`${videoSrc}#t=0.5`}
+                                                    preload="metadata"
+                                                    muted
+                                                    playsInline
+                                                    className="w-full h-full object-cover"
+                                                    onLoadedMetadata={(e) => {
+                                                        try { e.target.currentTime = 0.5; } catch (err) { void err; }
+                                                    }}
+                                                />
                                             ) : (
                                                 <div className="w-full h-full flex items-center justify-center text-neutral-600">
                                                     <Play className="w-10 h-10" />
@@ -1371,11 +1432,33 @@ export default function Dashboard({ onBackToSite }) {
                                         className="w-full bg-black/60 border border-white/15 focus:border-white rounded-xl py-3 px-4 text-sm text-white focus:outline-none transition-all text-left [direction:ltr]"
                                         required={videoSourceMode === 'url'}
                                     />
+                                    {videoUrlInput.trim() && (
+                                        <div className="mt-2 text-right">
+                                            <button
+                                                type="button"
+                                                onClick={() => handleUrlThumbnailCapture(1.0)}
+                                                disabled={isExtractingThumb}
+                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/15 rounded-xl text-xs font-bold text-white transition-all cursor-pointer disabled:opacity-40"
+                                            >
+                                                {isExtractingThumb ? (
+                                                    <>
+                                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                        <span>جاري استخراج الغلاف من الرابط...</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Camera className="w-3.5 h-3.5 text-neutral-300" />
+                                                        <span>التقاط صورة غلاف تلقائياً من رابط الفيديو</span>
+                                                    </>
+                                                )}
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
                             {/* Automatic Video Thumbnail Preview Section */}
-                            {videoSourceMode === 'upload' && (
+                            {(videoSourceMode === 'upload' || autoThumbPreview) && (
                                 <div className="p-4 bg-white/[0.02] border border-white/10 rounded-2xl space-y-3">
                                     <div className="flex items-center justify-between">
                                         <span className="text-xs font-bold text-neutral-300 flex items-center gap-1.5">
@@ -1476,44 +1559,103 @@ export default function Dashboard({ onBackToSite }) {
 
                         <form onSubmit={handleSaveEditVideo} className="space-y-4">
                             {/* Current & New Thumbnail Preview */}
-                            <div className="p-4 bg-white/[0.02] border border-white/10 rounded-2xl">
-                                <label className="block text-xs font-bold text-neutral-300 mb-3">معاينة صورة الغلاف (Thumbnail)</label>
-                                <div className="flex items-center gap-4">
-                                    <div className="relative aspect-[16/10] w-32 rounded-xl overflow-hidden bg-black border border-white/15 shrink-0 shadow-md">
-                                        {editThumbPreview ? (
-                                            <img src={editThumbPreview} alt="الغلاف الجديد" className="w-full h-full object-cover" />
-                                        ) : (
-                                            <img
-                                                src={
-                                                    editingVideo.thumbBlobKey && customMediaUrls[editingVideo.thumbBlobKey]
-                                                        ? customMediaUrls[editingVideo.thumbBlobKey]
-                                                        : editingVideo.thumbnailUrl || (editingVideo.slug ? `/videos/${editingVideo.slug}/thumbnail.jpg` : '')
-                                                }
-                                                alt={editingVideo.title}
-                                                className="w-full h-full object-cover"
-                                            />
-                                        )}
-                                        <div className="absolute bottom-1 right-1 bg-black/80 backdrop-blur-sm px-1.5 py-0.5 rounded text-[8px] font-bold text-white">
-                                            {editThumbPreview ? 'غلاف جديد' : 'الحالي'}
-                                        </div>
-                                    </div>
-                                    <div className="text-xs text-neutral-400 space-y-1">
-                                        {editThumbPreview ? (
-                                            <p className="text-green-400 font-bold">✓ تم اختيار صورة غلاف جديدة بنجاح وسيتم حفظها مع التعديل.</p>
-                                        ) : (
-                                            <p>هذا هو الغلاف المعروض حالياً في الموقع. يمكنك استبداله باختيار صورة جديدة أدناه.</p>
-                                        )}
-                                    </div>
-                                </div>
+                            {/* Current & New Thumbnail Preview */}
+                            <div className="p-4 bg-white/[0.02] border border-white/10 rounded-2xl space-y-4">
+                                <label className="block text-xs font-bold text-neutral-300">معاينة صورة الغلاف (Thumbnail)</label>
+                                {(() => {
+                                    const editingThumbSrc = editingVideo.thumbBlobKey && customMediaUrls[editingVideo.thumbBlobKey]
+                                        ? customMediaUrls[editingVideo.thumbBlobKey]
+                                        : editingVideo.thumbnailUrl || (!editingVideo.isCustom && editingVideo.slug ? `/videos/${editingVideo.slug}/thumbnail.jpg` : '');
 
-                                <div className="mt-3">
-                                    <input
-                                        type="file"
-                                        accept="image/*"
-                                        onChange={(e) => handleEditThumbChange(e.target.files[0] || null)}
-                                        className="w-full text-xs text-neutral-400 file:mr-4 file:py-1.5 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-white/10 file:text-white hover:file:bg-white/20 cursor-pointer"
-                                    />
-                                </div>
+                                    const editingVideoSrc = editingVideo.videoBlobKey && customMediaUrls[editingVideo.videoBlobKey]
+                                        ? customMediaUrls[editingVideo.videoBlobKey]
+                                        : editingVideo.videoUrl || editingVideo.previewUrl || (!editingVideo.isCustom && editingVideo.slug ? `/videos/${editingVideo.slug}/video.mp4` : '');
+
+                                    return (
+                                        <>
+                                            <div className="flex items-center gap-4">
+                                                <div className="relative aspect-[16/10] w-32 rounded-xl overflow-hidden bg-black border border-white/15 shrink-0 shadow-md">
+                                                    {editThumbPreview ? (
+                                                        <img src={editThumbPreview} alt="الغلاف الجديد" className="w-full h-full object-cover" />
+                                                    ) : editingThumbSrc ? (
+                                                        <img src={editingThumbSrc} alt={editingVideo.title} className="w-full h-full object-cover" />
+                                                    ) : editingVideoSrc ? (
+                                                        <video
+                                                            src={`${editingVideoSrc}#t=0.5`}
+                                                            preload="metadata"
+                                                            muted
+                                                            playsInline
+                                                            className="w-full h-full object-cover"
+                                                            onLoadedMetadata={(e) => {
+                                                                try { e.target.currentTime = 0.5; } catch (err) { void err; }
+                                                            }}
+                                                        />
+                                                    ) : (
+                                                        <div className="w-full h-full flex items-center justify-center text-neutral-600">
+                                                            <Play className="w-8 h-8" />
+                                                        </div>
+                                                    )}
+                                                    <div className="absolute bottom-1 right-1 bg-black/80 backdrop-blur-sm px-1.5 py-0.5 rounded text-[8px] font-bold text-white">
+                                                        {editThumbPreview ? 'غلاف جديد' : editingThumbSrc ? 'الحالي' : 'إطار من الفيديو'}
+                                                    </div>
+                                                </div>
+
+                                                <div className="text-xs text-neutral-400 space-y-2">
+                                                    {editThumbPreview ? (
+                                                        <p className="text-green-400 font-bold">✓ تم التقاط صورة الغلاف بنجاح، اضغط «حفظ التعديلات» لاعتمادها.</p>
+                                                    ) : (
+                                                        <p>يمكنك التقاط صورة غلاف تلقائياً من الفيديو مباشرة، أو رفع صورة مخصصة من جهازك.</p>
+                                                    )}
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleAutoCaptureForEdit(1.0)}
+                                                        disabled={isExtractingEditThumb}
+                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/15 rounded-xl text-xs font-bold text-white transition-all cursor-pointer disabled:opacity-40"
+                                                    >
+                                                        {isExtractingEditThumb ? (
+                                                            <>
+                                                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                                <span>جاري استخراج الغلاف من الفيديو...</span>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <Camera className="w-3.5 h-3.5 text-neutral-300" />
+                                                                <span>التقاط صورة غلاف تلقائياً من الفيديو</span>
+                                                            </>
+                                                        )}
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {editThumbPreview && (
+                                                <div className="flex items-center gap-2 text-[10px] text-neutral-400 pt-1">
+                                                    <span>اختر توقيتاً آخر للقطة:</span>
+                                                    {[0.5, 1.0, 2.0, 3.0, 5.0].map((sec) => (
+                                                        <button
+                                                            key={sec}
+                                                            type="button"
+                                                            onClick={() => handleAutoCaptureForEdit(sec)}
+                                                            className="px-2 py-0.5 bg-white/5 hover:bg-white/15 border border-white/10 rounded text-white cursor-pointer"
+                                                        >
+                                                            {sec} ثانية
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
+
+                                            <div className="pt-2">
+                                                <label className="block text-[11px] text-neutral-400 mb-1">أو اختيار صورة غلاف من الجهاز:</label>
+                                                <input
+                                                    type="file"
+                                                    accept="image/*"
+                                                    onChange={(e) => handleEditThumbChange(e.target.files[0] || null)}
+                                                    className="w-full text-xs text-neutral-400 file:mr-4 file:py-1.5 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-white/10 file:text-white hover:file:bg-white/20 cursor-pointer"
+                                                />
+                                            </div>
+                                        </>
+                                    );
+                                })()}
                             </div>
 
                             {/* Title */}
