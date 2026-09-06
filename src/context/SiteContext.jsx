@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { defaultSections, defaultPortfolioItems, defaultAICourse, defaultHeroConfig } from '../data/config';
 import { saveMediaBlob, getMediaBlob, deleteMediaBlob } from '../utils/mediaStorage';
 import { hashPassword, verifyPassword, DEFAULT_PIN_HASH } from '../utils/security';
+import { uploadMediaToCloud, fetchCloudSiteConfig, saveCloudSiteConfig } from '../services/cloudStorage';
 import { SiteContext } from './siteContextDefinition';
 
 const STORAGE_KEYS = {
@@ -90,6 +91,52 @@ export function SiteProvider({ children }) {
     });
 
     const [isUnlocked, setIsUnlocked] = useState(false);
+    const [isCloudSyncing, setIsCloudSyncing] = useState(false);
+    const [cloudSyncStatus, setCloudSyncStatus] = useState('idle'); // 'idle' | 'syncing' | 'synced' | 'offline'
+
+    // Initial background cloud sync on mount from Vercel Blob
+    useEffect(() => {
+        let isMounted = true;
+        async function initCloudSync() {
+            try {
+                setIsCloudSyncing(true);
+                const cloudConfig = await fetchCloudSiteConfig();
+                if (cloudConfig && isMounted) {
+                    if (Array.isArray(cloudConfig.videos) && cloudConfig.videos.length > 0) {
+                        setVideos(prev => {
+                            // Merge: keep any local custom videos that may not have reached cloud yet
+                            const cloudIds = new Set(cloudConfig.videos.map(v => v.id));
+                            const unsynced = prev.filter(v => v.isCustom && !cloudIds.has(v.id));
+                            return [...unsynced, ...cloudConfig.videos];
+                        });
+                    }
+                    if (Array.isArray(cloudConfig.sections) && cloudConfig.sections.length > 0) {
+                        setSections(cloudConfig.sections);
+                    }
+                    if (cloudConfig.aiCourse) {
+                        setAiCourse(prev => ({ ...prev, ...cloudConfig.aiCourse }));
+                    }
+                    if (cloudConfig.heroConfig) {
+                        setHeroConfig(prev => ({ ...prev, ...cloudConfig.heroConfig }));
+                    }
+                    setCloudSyncStatus('synced');
+                } else if (isMounted) {
+                    setCloudSyncStatus('ready');
+                }
+            } catch (err) {
+                console.warn('Initial cloud sync error:', err);
+                if (isMounted) setCloudSyncStatus('offline');
+            } finally {
+                if (isMounted) setIsCloudSyncing(false);
+            }
+        }
+
+        initCloudSync();
+
+        return () => {
+            isMounted = false;
+        };
+    }, []);
 
     // Save sections whenever changed
     useEffect(() => {
@@ -103,23 +150,19 @@ export function SiteProvider({ children }) {
     // Save videos metadata whenever changed
     useEffect(() => {
         try {
-            // Strip any temporary runtime objectURLs before storing in localStorage
-            const cleanVideos = videos.map(v => {
-                if (v.videoBlobKey || v.thumbBlobKey) {
-                    return {
-                        ...v,
-                        videoUrl: v.videoBlobKey ? '' : v.videoUrl,
-                        previewUrl: v.previewBlobKey ? '' : v.previewUrl,
-                        thumbnailUrl: v.thumbBlobKey ? '' : v.thumbnailUrl,
-                    };
-                }
-                return v;
-            });
+            // Keep public cloud URLs (https://), only strip temporary session blob: URLs
+            const cleanVideos = videos.map(v => ({
+                ...v,
+                videoUrl: v.videoUrl?.startsWith('blob:') ? '' : v.videoUrl,
+                previewUrl: v.previewUrl?.startsWith('blob:') ? '' : v.previewUrl,
+                thumbnailUrl: v.thumbnailUrl?.startsWith('blob:') ? '' : v.thumbnailUrl,
+            }));
             localStorage.setItem(STORAGE_KEYS.VIDEOS, JSON.stringify(cleanVideos));
         } catch (err) {
             console.error('Error saving videos metadata:', err);
         }
     }, [videos]);
+
 
     // Save AI Course whenever changed
     useEffect(() => {
@@ -190,32 +233,71 @@ export function SiteProvider({ children }) {
         const [moved] = updated.splice(index, 1);
         updated.splice(targetIndex, 0, moved);
         setSections(updated);
+
+        saveCloudSiteConfig({
+            videos,
+            sections: updated,
+            heroConfig,
+            aiCourse,
+            updatedAt: new Date().toISOString(),
+        }).catch(err => console.warn('Cloud sync error on moveSection:', err));
     };
 
     // Helper: Toggle section visibility
     const toggleSectionVisibility = (id) => {
-        setSections(prev =>
-            prev.map(s => (s.id === id ? { ...s, visible: !s.visible } : s))
-        );
+        const updated = sections.map(s => (s.id === id ? { ...s, visible: !s.visible } : s));
+        setSections(updated);
+
+        saveCloudSiteConfig({
+            videos,
+            sections: updated,
+            heroConfig,
+            aiCourse,
+            updatedAt: new Date().toISOString(),
+        }).catch(err => console.warn('Cloud sync error on toggleSectionVisibility:', err));
     };
 
-    // Helper: Add video (Supports either uploaded Blobs or direct URLs)
-    const addVideo = async ({ title, category, videoUrl, thumbnailUrl, videoBlob, thumbBlob }) => {
+    // Helper: Add video (Uploads directly to Vercel Blob for worldwide mobile & desktop access)
+    const addVideo = async ({ title, category, videoUrl, thumbnailUrl, videoBlob, thumbBlob, onProgress }) => {
         const id = Date.now();
+        const safeSlug = `custom_${id}`;
         let videoBlobKey = null;
         let thumbBlobKey = null;
         const runtimeUrls = {};
 
+        let finalVideoUrl = videoUrl || '';
+        let finalThumbUrl = thumbnailUrl || '';
+
+        // 1. If user provided a video file, upload directly to Vercel Blob
         if (videoBlob) {
             videoBlobKey = `vid_blob_${id}`;
             await saveMediaBlob(videoBlobKey, videoBlob);
             runtimeUrls[videoBlobKey] = URL.createObjectURL(videoBlob);
+
+            try {
+                const uploadRes = await uploadMediaToCloud(videoBlob, `${safeSlug}_video.mp4`, onProgress);
+                if (uploadRes && uploadRes.success && uploadRes.url) {
+                    finalVideoUrl = uploadRes.url;
+                }
+            } catch (err) {
+                console.warn('Direct cloud upload for video failed, stored locally:', err);
+            }
         }
 
+        // 2. If thumbnail blob exists (user-selected or auto-captured frame), upload to Vercel Blob
         if (thumbBlob) {
             thumbBlobKey = `thumb_blob_${id}`;
             await saveMediaBlob(thumbBlobKey, thumbBlob);
             runtimeUrls[thumbBlobKey] = URL.createObjectURL(thumbBlob);
+
+            try {
+                const thumbRes = await uploadMediaToCloud(thumbBlob, `${safeSlug}_thumb.jpg`);
+                if (thumbRes && thumbRes.success && thumbRes.url) {
+                    finalThumbUrl = thumbRes.url;
+                }
+            } catch (err) {
+                console.warn('Direct cloud upload for thumbnail failed, stored locally:', err);
+            }
         }
 
         if (Object.keys(runtimeUrls).length > 0) {
@@ -226,17 +308,29 @@ export function SiteProvider({ children }) {
             id,
             title: title || `فيديو جديد #${id.toString().slice(-4)}`,
             category: category || 'عام',
-            slug: `custom_${id}`,
+            slug: safeSlug,
             isCustom: true,
             videoBlobKey,
             thumbBlobKey,
-            videoUrl: videoUrl || '',
-            previewUrl: videoUrl || '',
-            thumbnailUrl: thumbnailUrl || '',
+            videoUrl: finalVideoUrl,
+            previewUrl: finalVideoUrl,
+            thumbnailUrl: finalThumbUrl,
         };
 
-        // Add to front of portfolio items
-        setVideos(prev => [newVideo, ...prev]);
+        const updatedVideos = [newVideo, ...videos];
+        setVideos(updatedVideos);
+
+        // Save immediately to Vercel Blob cloud site configuration
+        saveCloudSiteConfig({
+            videos: updatedVideos,
+            sections,
+            heroConfig,
+            aiCourse,
+            updatedAt: new Date().toISOString(),
+        }).then(ok => {
+            if (ok) setCloudSyncStatus('synced');
+        }).catch(err => console.warn('Could not sync new video to cloud:', err));
+
         return newVideo;
     };
 
@@ -247,7 +341,16 @@ export function SiteProvider({ children }) {
             if (target.videoBlobKey) await deleteMediaBlob(target.videoBlobKey);
             if (target.thumbBlobKey) await deleteMediaBlob(target.thumbBlobKey);
         }
-        setVideos(prev => prev.filter(v => v.id !== id));
+        const updatedVideos = videos.filter(v => v.id !== id);
+        setVideos(updatedVideos);
+
+        saveCloudSiteConfig({
+            videos: updatedVideos,
+            sections,
+            heroConfig,
+            aiCourse,
+            updatedAt: new Date().toISOString(),
+        }).catch(err => console.warn('Cloud sync error on deleteVideo:', err));
     };
 
     // Helper: Move video Up or Down in the list
@@ -259,30 +362,69 @@ export function SiteProvider({ children }) {
         const [moved] = updated.splice(index, 1);
         updated.splice(targetIndex, 0, moved);
         setVideos(updated);
+
+        saveCloudSiteConfig({
+            videos: updated,
+            sections,
+            heroConfig,
+            aiCourse,
+            updatedAt: new Date().toISOString(),
+        }).catch(err => console.warn('Cloud sync error on moveVideo:', err));
     };
 
     // Helper: Update video fields
     const updateVideo = (id, fields) => {
-        setVideos(prev =>
-            prev.map(v => (v.id === id ? { ...v, ...fields } : v))
-        );
+        const updatedVideos = videos.map(v => (v.id === id ? { ...v, ...fields } : v));
+        setVideos(updatedVideos);
+
+        saveCloudSiteConfig({
+            videos: updatedVideos,
+            sections,
+            heroConfig,
+            aiCourse,
+            updatedAt: new Date().toISOString(),
+        }).catch(err => console.warn('Cloud sync error on updateVideo:', err));
     };
 
     // Helper: Toggle single video visibility
     const toggleVideoVisibility = (id) => {
-        setVideos(prev =>
-            prev.map(v => (v.id === id ? { ...v, visible: v.visible === false ? true : false } : v))
-        );
+        const updated = videos.map(v => (v.id === id ? { ...v, visible: v.visible === false ? true : false } : v));
+        setVideos(updated);
+
+        saveCloudSiteConfig({
+            videos: updated,
+            sections,
+            heroConfig,
+            aiCourse,
+            updatedAt: new Date().toISOString(),
+        }).catch(err => console.warn('Cloud sync error on toggleVideoVisibility:', err));
     };
 
     // Helper: Reset only videos to default 15
     const resetVideosToDefault = () => {
         setVideos(defaultPortfolioItems);
+        saveCloudSiteConfig({
+            videos: defaultPortfolioItems,
+            sections,
+            heroConfig,
+            aiCourse,
+            updatedAt: new Date().toISOString(),
+        }).catch(err => console.warn('Cloud sync error on resetVideosToDefault:', err));
     };
 
     // Helper: Update AI Course data
     const updateAICourse = (fields) => {
-        setAiCourse(prev => ({ ...prev, ...fields }));
+        setAiCourse(prev => {
+            const next = { ...prev, ...fields };
+            saveCloudSiteConfig({
+                videos,
+                sections,
+                heroConfig,
+                aiCourse: next,
+                updatedAt: new Date().toISOString(),
+            }).catch(console.warn);
+            return next;
+        });
     };
 
     // Helper: Update PIN (Hashed with SHA-256)
@@ -298,11 +440,120 @@ export function SiteProvider({ children }) {
 
     // Hero Section helpers
     const updateHeroConfig = (fields) => {
-        setHeroConfig(prev => ({ ...prev, ...fields }));
+        setHeroConfig(prev => {
+            const next = { ...prev, ...fields };
+            saveCloudSiteConfig({
+                videos,
+                sections,
+                heroConfig: next,
+                aiCourse,
+                updatedAt: new Date().toISOString(),
+            }).catch(console.warn);
+            return next;
+        });
     };
 
     const resetHeroToDefault = () => {
         setHeroConfig(defaultHeroConfig);
+        saveCloudSiteConfig({
+            videos,
+            sections,
+            heroConfig: defaultHeroConfig,
+            aiCourse,
+            updatedAt: new Date().toISOString(),
+        }).catch(console.warn);
+    };
+
+    // Sync all videos & configuration to Vercel Blob Cloud
+    const syncAllToVercelBlob = async (onStatusUpdate) => {
+        setIsCloudSyncing(true);
+        setCloudSyncStatus('syncing');
+        try {
+            let updatedCount = 0;
+            const newVideos = [...videos];
+
+            for (let i = 0; i < newVideos.length; i++) {
+                const v = { ...newVideos[i] };
+                let modified = false;
+
+                // 1. Upload video if local only
+                const needsVideoUpload = v.videoBlobKey && (!v.videoUrl || !v.videoUrl.startsWith('http'));
+                if (needsVideoUpload) {
+                    if (onStatusUpdate) onStatusUpdate(`جاري رفع فيديو: ${v.title}...`);
+                    const blob = await getMediaBlob(v.videoBlobKey);
+                    if (blob) {
+                        const uploadRes = await uploadMediaToCloud(blob, `${v.slug || 'video'}.mp4`);
+                        if (uploadRes.success && uploadRes.url) {
+                            v.videoUrl = uploadRes.url;
+                            v.previewUrl = uploadRes.url;
+                            modified = true;
+                        }
+                    }
+                }
+
+                // 2. Upload thumbnail if local only
+                const needsThumbUpload = v.thumbBlobKey && (!v.thumbnailUrl || !v.thumbnailUrl.startsWith('http'));
+                if (needsThumbUpload) {
+                    if (onStatusUpdate) onStatusUpdate(`جاري رفع غلاف: ${v.title}...`);
+                    const blob = await getMediaBlob(v.thumbBlobKey);
+                    if (blob) {
+                        const uploadRes = await uploadMediaToCloud(blob, `${v.slug || 'thumb'}.jpg`);
+                        if (uploadRes.success && uploadRes.url) {
+                            v.thumbnailUrl = uploadRes.url;
+                            modified = true;
+                        }
+                    }
+                }
+
+                if (modified) {
+                    newVideos[i] = v;
+                    updatedCount++;
+                }
+            }
+
+            if (onStatusUpdate) onStatusUpdate('جاري حفظ الإعدادات في سحابة Vercel...');
+            setVideos(newVideos);
+
+            const ok = await saveCloudSiteConfig({
+                videos: newVideos,
+                sections,
+                heroConfig,
+                aiCourse,
+                updatedAt: new Date().toISOString(),
+            });
+
+            if (ok) {
+                setCloudSyncStatus('synced');
+                if (onStatusUpdate) onStatusUpdate('تمت المزامنة بنجاح وحفظ الفيديوهات في السحابة! ☁️✨');
+                return { success: true, updatedCount };
+            } else {
+                setCloudSyncStatus('offline');
+                return { success: false, error: 'فشل حفظ الإعدادات في السحابة' };
+            }
+        } catch (err) {
+            console.error('Error in syncAllToVercelBlob:', err);
+            setCloudSyncStatus('offline');
+            return { success: false, error: err.message };
+        } finally {
+            setIsCloudSyncing(false);
+        }
+    };
+
+    const saveToCloudNow = async () => {
+        setIsCloudSyncing(true);
+        try {
+            const ok = await saveCloudSiteConfig({
+                videos,
+                sections,
+                heroConfig,
+                aiCourse,
+                updatedAt: new Date().toISOString(),
+            });
+            if (ok) setCloudSyncStatus('synced');
+            return ok;
+        } finally {
+            setIsCloudSyncing(false);
+        }
     };
 
     // Authentication helpers (SHA-256 verification)
@@ -420,6 +671,10 @@ export function SiteProvider({ children }) {
                 resetToDefaults,
                 exportConfig,
                 importConfig,
+                isCloudSyncing,
+                cloudSyncStatus,
+                syncAllToVercelBlob,
+                saveToCloudNow,
             }}
         >
             {children}

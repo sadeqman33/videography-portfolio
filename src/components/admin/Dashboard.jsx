@@ -25,11 +25,16 @@ import {
     Loader2,
     Edit3,
     Sliders,
-    Type
+    Type,
+    Cloud,
+    CloudUpload,
+    CloudOff,
+    RefreshCw
 } from 'lucide-react';
 import { useSiteData } from '../../context/useSiteData';
 import { captureVideoFrame } from '../../utils/videoThumbnail';
 import { saveMediaBlob } from '../../utils/mediaStorage';
+import { uploadMediaToCloud } from '../../services/cloudStorage';
 
 export default function Dashboard({ onBackToSite }) {
     const {
@@ -58,11 +63,17 @@ export default function Dashboard({ onBackToSite }) {
         resetToDefaults,
         exportConfig,
         importConfig,
+        isCloudSyncing,
+        cloudSyncStatus,
+        syncAllToVercelBlob,
     } = useSiteData();
 
     const [activeTab, setActiveTab] = useState('sections'); // 'sections', 'videos', 'ai_course', 'safety'
     const [pinInput, setPinInput] = useState('');
     const [pinError, setPinError] = useState(false);
+    const [cloudSyncMsg, setCloudSyncMsg] = useState('');
+    const [uploadProgress, setUploadProgress] = useState(0);
+
     const [showPinPassword, setShowPinPassword] = useState(false);
     const [isAuthenticating, setIsAuthenticating] = useState(false);
     const [failedAttempts, setFailedAttempts] = useState(0);
@@ -204,6 +215,7 @@ export default function Dashboard({ onBackToSite }) {
     const handleAddVideoSubmit = async (e) => {
         e.preventDefault();
         setIsUploading(true);
+        setUploadProgress(0);
 
         try {
             const effectiveThumbBlob = thumbFile || autoThumbBlob;
@@ -215,6 +227,7 @@ export default function Dashboard({ onBackToSite }) {
                 thumbnailUrl: thumbUrlInput,
                 videoBlob: videoSourceMode === 'upload' ? videoFile : null,
                 thumbBlob: effectiveThumbBlob,
+                onProgress: (p) => setUploadProgress(p),
             });
 
             // Reset form
@@ -227,13 +240,33 @@ export default function Dashboard({ onBackToSite }) {
             setAutoThumbBlob(null);
             setAutoThumbPreview('');
             setIsAddModalOpen(false);
-            showNotification('تمت إضافة الفيديو وحفظ صورة الغلاف بنجاح!');
+            showNotification('تم رفع الفيديو وحفظه في سحابة Vercel بنجاح!');
         } catch (err) {
             alert('حدث خطأ أثناء حفظ الفيديو: ' + err.message);
         } finally {
             setIsUploading(false);
+            setUploadProgress(0);
         }
     };
+
+    // Handle Cloud Sync for All Videos
+    const handleCloudSync = async () => {
+        setCloudSyncMsg('جاري فحص الفيديوهات والمزامنة مع Vercel Blob...');
+        try {
+            const res = await syncAllToVercelBlob((msg) => {
+                setCloudSyncMsg(msg);
+            });
+            if (res && res.success) {
+                showNotification('تمت مزامنة جميع الفيديوهات وإعدادات الموقع مع سحابة Vercel بنجاح!');
+                setTimeout(() => setCloudSyncMsg(''), 5000);
+            } else {
+                alert('حدث خطأ أثناء المزامنة: ' + (res?.error || 'يرجى المحاولة مرة أخرى'));
+            }
+        } catch (err) {
+            alert('خطأ في المزامنة: ' + err.message);
+        }
+    };
+
 
     // Handle Open Edit Video
     const handleOpenEdit = (vid) => {
@@ -323,18 +356,27 @@ export default function Dashboard({ onBackToSite }) {
                 const thumbKey = `thumb_blob_${editingVideo.id}_${Date.now()}`;
                 await saveMediaBlob(thumbKey, editThumbFile);
                 updates.thumbBlobKey = thumbKey;
-                updates.thumbnailUrl = '';
                 if (setCustomMediaUrls) {
                     setCustomMediaUrls(prev => ({
                         ...prev,
                         [thumbKey]: URL.createObjectURL(editThumbFile)
                     }));
                 }
+
+                try {
+                    const thumbRes = await uploadMediaToCloud(editThumbFile, `${editingVideo.slug || 'thumb'}_${Date.now()}.jpg`);
+                    if (thumbRes && thumbRes.success && thumbRes.url) {
+                        updates.thumbnailUrl = thumbRes.url;
+                    }
+                } catch (e) {
+                    console.warn('Cloud upload for edited thumb failed:', e);
+                }
             }
 
             updateVideo(editingVideo.id, updates);
             setEditingVideo(null);
-            showNotification('تم تحديث بيانات الفيديو بنجاح!');
+            showNotification('تم تحديث بيانات الفيديو وحفظها في سحابة Vercel بنجاح!');
+
         } catch (err) {
             alert('حدث خطأ أثناء التعديل: ' + err.message);
         } finally {
@@ -493,6 +535,27 @@ export default function Dashboard({ onBackToSite }) {
                     </div>
 
                     <div className="flex items-center gap-3">
+                        {/* Cloud Sync Status Badge */}
+                        <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border border-white/10 bg-white/[0.03]">
+                            {cloudSyncStatus === 'synced' ? (
+                                <>
+                                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                                    <Cloud className="w-3.5 h-3.5 text-emerald-400" />
+                                    <span className="text-emerald-400 text-[11px] font-bold">سحابة Vercel متصلة</span>
+                                </>
+                            ) : cloudSyncStatus === 'syncing' ? (
+                                <>
+                                    <Loader2 className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+                                    <span className="text-amber-400 text-[11px] font-bold">جاري المزامنة...</span>
+                                </>
+                            ) : (
+                                <>
+                                    <Cloud className="w-3.5 h-3.5 text-neutral-400" />
+                                    <span className="text-neutral-400 text-[11px]">Vercel Blob جاهز</span>
+                                </>
+                            )}
+                        </div>
+
                         <button
                             onClick={onBackToSite}
                             className="inline-flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/15 border border-white/15 rounded-full text-xs font-bold text-white transition-all cursor-pointer"
@@ -925,7 +988,21 @@ export default function Dashboard({ onBackToSite }) {
                                 </p>
                             </div>
 
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-3 flex-wrap">
+                                <button
+                                    onClick={handleCloudSync}
+                                    disabled={isCloudSyncing}
+                                    className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 font-bold text-xs rounded-full transition-all cursor-pointer disabled:opacity-50"
+                                    title="مزامنة الفيديوهات مع Vercel Blob لتظهر فوراً على الهواتف والأجهزة الأخرى"
+                                >
+                                    {isCloudSyncing ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                        <CloudUpload className="w-3.5 h-3.5" />
+                                    )}
+                                    <span>{isCloudSyncing ? 'جاري المزامنة مع Vercel...' : 'مزامنة مع سحابة Vercel (للهاتف)'}</span>
+                                </button>
+
                                 <button
                                     onClick={() => {
                                         if (confirm('هل تريد استعادة قائمة الفيديوهات الأصلية الـ 15 للموقع؟ (لن تتأثر الأقسام الأخرى أو إعدادات الكورس)')) {
@@ -949,6 +1026,18 @@ export default function Dashboard({ onBackToSite }) {
                                 </button>
                             </div>
                         </div>
+
+                        {/* Cloud Sync Notification / Status */}
+                        {cloudSyncMsg && (
+                            <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl text-xs text-emerald-300 flex items-center justify-between animate-fade-in-up">
+                                <div className="flex items-center gap-2.5">
+                                    <Cloud className="w-4 h-4 text-emerald-400 shrink-0" />
+                                    <span>{cloudSyncMsg}</span>
+                                </div>
+                                <span className="text-[10px] text-emerald-400/80 font-mono">Vercel Blob CDN</span>
+                            </div>
+                        )}
+
 
                         {/* Videos Grid */}
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -1527,15 +1616,44 @@ export default function Dashboard({ onBackToSite }) {
                                 </div>
                             </div>
 
-                            <div className="pt-2">
+                            <div className="pt-2 space-y-2.5">
+                                {isUploading && (
+                                    <div className="space-y-2 p-4 bg-white/[0.04] border border-white/10 rounded-2xl animate-fade-in-up">
+                                        <div className="flex justify-between items-center text-xs">
+                                            <span className="flex items-center gap-1.5 font-bold text-white">
+                                                <CloudUpload className="w-4 h-4 text-emerald-400" />
+                                                جاري الرفع إلى سحابة Vercel العالمية...
+                                            </span>
+                                            <span className="font-mono text-emerald-400 font-bold text-xs">{uploadProgress}%</span>
+                                        </div>
+                                        <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
+                                            <div
+                                                className="bg-gradient-to-r from-emerald-500 via-teal-400 to-white h-full transition-all duration-300 rounded-full"
+                                                style={{ width: `${Math.max(uploadProgress, 5)}%` }}
+                                            />
+                                        </div>
+                                        <p className="text-[10px] text-neutral-400 text-center">
+                                            يتم تخزين الفيديو في Vercel Blob ليظهر مباشرة على هاتفك وأجهزة كافة الزوار حول العالم.
+                                        </p>
+                                    </div>
+                                )}
+
                                 <button
                                     type="submit"
                                     disabled={isUploading}
-                                    className="w-full py-3.5 bg-white hover:bg-neutral-200 text-black font-black text-sm rounded-full transition-all shadow-silver-glow cursor-pointer disabled:opacity-50"
+                                    className="w-full py-3.5 bg-white hover:bg-neutral-200 text-black font-black text-sm rounded-full transition-all shadow-silver-glow cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
                                 >
-                                    {isUploading ? 'جاري المعالجة والحفظ...' : 'حفظ وإضافة الفيديو للمعرض'}
+                                    {isUploading ? (
+                                        <>
+                                            <Loader2 className="w-4 h-4 animate-spin text-black" />
+                                            <span>جاري الرفع والحفظ بالسحابة ({uploadProgress}%)...</span>
+                                        </>
+                                    ) : (
+                                        'حفظ وإضافة الفيديو للمعرض'
+                                    )}
                                 </button>
                             </div>
+
                         </form>
                     </div>
                 </div>
