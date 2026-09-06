@@ -22,6 +22,7 @@ export default function Footer({ onNavigate }) {
                         <ul className="space-y-2">
                             <li><button onClick={() => onNavigate('home')} className="text-stone-400 hover:text-white transition-colors text-sm cursor-pointer bg-transparent border-none p-0">الرئيسية</button></li>
                             <li><a href="#portfolio" className="text-stone-400 hover:text-accent-400 transition-colors text-sm">معرض الأعمال</a></li>
+                            <li><a href="#ai-course" className="text-stone-400 hover:text-accent-400 transition-colors text-sm flex items-center gap-1"><span>كورس الذكاء الاصطناعي</span><span className="text-[10px] bg-white/10 px-1.5 py-0.2 rounded-full">AI 🤖</span></a></li>
                             <li><a href="#services" className="text-stone-400 hover:text-accent-400 transition-colors text-sm">الخدمات</a></li>
                             <li><a href="#booking" className="text-stone-400 hover:text-accent-400 transition-colors text-sm">احجز الآن</a></li>
                             <li><a href="#contact" className="text-stone-400 hover:text-accent-400 transition-colors text-sm">تواصل معي</a></li>
@@ -46,9 +47,10 @@ export default function Footer({ onNavigate }) {
                     <p className="text-stone-500 text-sm">
                         © {new Date().getFullYear()} Sadeq Ammar. جميع الحقوق محفوظة.
                     </p>
-                    <div className="flex items-center gap-4 hidden sm:flex">
+                    <div className="flex items-center gap-4">
                         <button onClick={() => onNavigate('privacy')} className="text-stone-500 hover:text-white transition-colors text-sm cursor-pointer bg-transparent border-none p-0">سياسة الخصوصية</button>
                         <button onClick={() => onNavigate('terms')} className="text-stone-500 hover:text-white transition-colors text-sm cursor-pointer bg-transparent border-none p-0">الشروط والأحكام</button>
+                        <button onClick={() => onNavigate('admin')} className="text-neutral-500 hover:text-white transition-colors text-xs cursor-pointer bg-white/5 hover:bg-white/10 px-3 py-1 rounded-full border border-white/10">لوحة الإدارة ⚙️</button>
                     </div>
                 </div>
             </div>
