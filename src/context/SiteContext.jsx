@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { defaultSections, defaultPortfolioItems, defaultAICourse, defaultHeroConfig } from '../data/config';
 import { saveMediaBlob, getMediaBlob, deleteMediaBlob } from '../utils/mediaStorage';
+import { hashPassword, verifyPassword, DEFAULT_PIN_HASH } from '../utils/security';
 import { SiteContext } from './siteContextDefinition';
 
 const STORAGE_KEYS = {
@@ -79,12 +80,12 @@ export function SiteProvider({ children }) {
         return defaultHeroConfig;
     });
 
-    // 5. Admin Security PIN
+    // 5. Admin Security PIN Hash (SHA-256)
     const [adminPin, setAdminPin] = useState(() => {
         try {
-            return localStorage.getItem(STORAGE_KEYS.ADMIN_PIN) || '0000';
+            return localStorage.getItem(STORAGE_KEYS.ADMIN_PIN) || DEFAULT_PIN_HASH;
         } catch {
-            return '0000';
+            return DEFAULT_PIN_HASH;
         }
     });
 
@@ -284,9 +285,15 @@ export function SiteProvider({ children }) {
         setAiCourse(prev => ({ ...prev, ...fields }));
     };
 
-    // Helper: Update PIN
-    const updateAdminPin = (newPin) => {
-        setAdminPin(newPin);
+    // Helper: Update PIN (Hashed with SHA-256)
+    const updateAdminPin = async (newPin) => {
+        const hashed = await hashPassword(newPin);
+        setAdminPin(hashed);
+        try {
+            localStorage.setItem(STORAGE_KEYS.ADMIN_PIN, hashed);
+        } catch (err) {
+            console.error('Error saving Admin PIN hash:', err);
+        }
     };
 
     // Hero Section helpers
@@ -298,13 +305,18 @@ export function SiteProvider({ children }) {
         setHeroConfig(defaultHeroConfig);
     };
 
-    // Authentication helpers
-    const unlock = (pin) => {
-        if (pin === adminPin) {
+    // Authentication helpers (SHA-256 verification)
+    const unlock = async (pin) => {
+        const isValid = await verifyPassword(pin, adminPin);
+        if (isValid) {
             setIsUnlocked(true);
             return true;
         }
         return false;
+    };
+
+    const verifyCurrentPin = async (pin) => {
+        return await verifyPassword(pin, adminPin);
     };
 
     const lock = () => {
@@ -317,7 +329,7 @@ export function SiteProvider({ children }) {
         setVideos(defaultPortfolioItems);
         setAiCourse(defaultAICourse);
         setHeroConfig(defaultHeroConfig);
-        setAdminPin('0000');
+        setAdminPin(DEFAULT_PIN_HASH);
         try {
             localStorage.removeItem(STORAGE_KEYS.SECTIONS);
             localStorage.removeItem(STORAGE_KEYS.VIDEOS);
@@ -401,6 +413,7 @@ export function SiteProvider({ children }) {
                 updateHeroConfig,
                 resetHeroToDefault,
                 updateAdminPin,
+                verifyCurrentPin,
                 isUnlocked,
                 unlock,
                 lock,

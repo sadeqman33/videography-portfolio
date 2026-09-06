@@ -51,6 +51,7 @@ export default function Dashboard({ onBackToSite }) {
         updateHeroConfig,
         resetHeroToDefault,
         updateAdminPin,
+        verifyCurrentPin,
         isUnlocked,
         unlock,
         lock,
@@ -62,7 +63,21 @@ export default function Dashboard({ onBackToSite }) {
     const [activeTab, setActiveTab] = useState('sections'); // 'sections', 'videos', 'ai_course', 'safety'
     const [pinInput, setPinInput] = useState('');
     const [pinError, setPinError] = useState(false);
+    const [showPinPassword, setShowPinPassword] = useState(false);
+    const [isAuthenticating, setIsAuthenticating] = useState(false);
+    const [failedAttempts, setFailedAttempts] = useState(0);
+    const [lockoutSeconds, setLockoutSeconds] = useState(0);
     const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
+
+    // Lockout countdown timer
+    useEffect(() => {
+        if (lockoutSeconds > 0) {
+            const timer = setTimeout(() => {
+                setLockoutSeconds(prev => prev - 1);
+            }, 1000);
+            return () => clearTimeout(timer);
+        }
+    }, [lockoutSeconds]);
 
     // Modal: Add Video State
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -109,22 +124,44 @@ export default function Dashboard({ onBackToSite }) {
     }, [aiCourse]);
 
     // PIN Change State
+    const [currentPinInput, setCurrentPinInput] = useState('');
     const [newPin, setNewPin] = useState('');
+    const [confirmPin, setConfirmPin] = useState('');
     const [pinChangeMsg, setPinChangeMsg] = useState('');
+    const [pinChangeError, setPinChangeError] = useState('');
+    const [isChangingPin, setIsChangingPin] = useState(false);
 
     const showNotification = (msg) => {
         setSaveSuccessMsg(msg);
         setTimeout(() => setSaveSuccessMsg(''), 3500);
     };
 
-    // Handle PIN Unlock
-    const handleUnlock = (e) => {
+    // Handle PIN Unlock (SHA-256 verification & brute-force protection)
+    const handleUnlock = async (e) => {
         e.preventDefault();
-        if (unlock(pinInput)) {
-            setPinError(false);
-            setPinInput('');
-        } else {
+        if (lockoutSeconds > 0 || isAuthenticating || !pinInput) return;
+
+        setIsAuthenticating(true);
+        setPinError(false);
+
+        try {
+            const ok = await unlock(pinInput);
+            if (ok) {
+                setPinError(false);
+                setPinInput('');
+                setFailedAttempts(0);
+            } else {
+                const nextAttempts = failedAttempts + 1;
+                setFailedAttempts(nextAttempts);
+                setPinError(true);
+                if (nextAttempts >= 5) {
+                    setLockoutSeconds(60);
+                }
+            }
+        } catch {
             setPinError(true);
+        } finally {
+            setIsAuthenticating(false);
         }
     };
 
@@ -274,16 +311,36 @@ export default function Dashboard({ onBackToSite }) {
     };
 
     // Handle PIN Change
-    const handlePinChange = (e) => {
+    const handlePinChange = async (e) => {
         e.preventDefault();
-        if (newPin.length >= 4) {
-            updateAdminPin(newPin);
-            setNewPin('');
-            setPinChangeMsg('تم تحديث رمز الدخول (PIN) بنجاح!');
-            setTimeout(() => setPinChangeMsg(''), 3000);
-        } else {
-            alert('يجب أن يتكون رمز الدخول من 4 خانات على الأقل');
+        setPinChangeMsg('');
+        setPinChangeError('');
+
+        if (newPin.length < 4) {
+            setPinChangeError('يجب أن يتكون رمز المرور الجديد من 4 خانات على الأقل');
+            return;
         }
+
+        if (newPin !== confirmPin) {
+            setPinChangeError('رمز المرور الجديد وتأكيده غير متطابقين');
+            return;
+        }
+
+        setIsChangingPin(true);
+        const isCurrentValid = await verifyCurrentPin(currentPinInput);
+        if (!isCurrentValid) {
+            setIsChangingPin(false);
+            setPinChangeError('رمز المرور الحالي غير صحيح');
+            return;
+        }
+
+        await updateAdminPin(newPin);
+        setIsChangingPin(false);
+        setCurrentPinInput('');
+        setNewPin('');
+        setConfirmPin('');
+        setPinChangeMsg('✓ تم تحديث وتشفير رمز المرور بنجاح!');
+        setTimeout(() => setPinChangeMsg(''), 4000);
     };
 
     // Handle Import File
@@ -313,37 +370,55 @@ export default function Dashboard({ onBackToSite }) {
 
                     <h2 className="text-2xl font-black text-white mb-2">لوحة إدارة الموقع</h2>
                     <p className="text-sm text-neutral-400 mb-6">
-                        أدخل رمز الحماية (PIN) للوصول إلى أدوات ترتيب الأقسام ورفع الفيديوهات
+                        أدخل رمز المرور السري للوصول إلى أدوات إدارة الموقع
                     </p>
 
                     <form onSubmit={handleUnlock} className="space-y-4">
-                        <input
-                            type="password"
-                            value={pinInput}
-                            onChange={(e) => setPinInput(e.target.value)}
-                            placeholder="رمز الدخول (الافتراضي 0000)"
-                            maxLength={10}
-                            className="w-full bg-black/60 border border-white/15 focus:border-white rounded-xl py-3.5 px-4 text-center text-lg tracking-widest text-white focus:outline-none transition-all"
-                            autoFocus
-                        />
+                        <div className="relative">
+                            <input
+                                type={showPinPassword ? "text" : "password"}
+                                value={pinInput}
+                                onChange={(e) => setPinInput(e.target.value)}
+                                placeholder="••••••••"
+                                maxLength={20}
+                                disabled={lockoutSeconds > 0 || isAuthenticating}
+                                className="w-full bg-black/60 border border-white/15 focus:border-white rounded-xl py-3.5 px-12 text-center text-lg tracking-widest text-white focus:outline-none transition-all disabled:opacity-40"
+                                autoFocus
+                            />
+                            <button
+                                type="button"
+                                onClick={() => setShowPinPassword(!showPinPassword)}
+                                className="absolute left-3.5 top-1/2 -translate-y-1/2 p-1.5 text-neutral-400 hover:text-white transition-colors cursor-pointer"
+                                title={showPinPassword ? "إخفاء رمز المرور" : "إظهار رمز المرور"}
+                            >
+                                {showPinPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                        </div>
 
-                        {pinError && (
+                        {lockoutSeconds > 0 ? (
+                            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-xs text-red-400 font-bold">
+                                ⚠️ تم قفل المحاولات مؤقتاً لحماية اللوحة. يرجى الانتظار ({lockoutSeconds} ثانية)...
+                            </div>
+                        ) : pinError ? (
                             <p className="text-xs text-red-400 font-bold animate-shake">
-                                رمز الدخول غير صحيح، يرجى المحاولة مجدداً.
+                                رمز المرور غير صحيح. يرجى المحاولة مجدداً.
+                                {failedAttempts > 1 && ` (محاولة ${failedAttempts} من 5)`}
                             </p>
-                        )}
+                        ) : null}
 
                         <button
                             type="submit"
-                            className="w-full py-3.5 bg-white hover:bg-neutral-200 text-black font-black text-sm rounded-xl transition-all shadow-[0_0_15px_rgba(255,255,255,0.15)] cursor-pointer"
+                            disabled={lockoutSeconds > 0 || isAuthenticating || !pinInput}
+                            className="w-full py-3.5 bg-white hover:bg-neutral-200 text-black font-black text-sm rounded-xl transition-all shadow-[0_0_15px_rgba(255,255,255,0.15)] cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
                         >
-                            تسجيل الدخول
+                            {isAuthenticating && <Loader2 className="w-4 h-4 animate-spin text-black" />}
+                            <span>تسجيل الدخول</span>
                         </button>
                     </form>
 
                     <button
                         onClick={onBackToSite}
-                        className="mt-6 text-xs text-neutral-500 hover:text-neutral-300 flex items-center justify-center gap-1 mx-auto transition-colors"
+                        className="mt-6 text-xs text-neutral-500 hover:text-neutral-300 flex items-center justify-center gap-1 mx-auto transition-colors cursor-pointer"
                     >
                         <ArrowRight className="w-3.5 h-3.5" />
                         العودة إلى الموقع
@@ -1108,30 +1183,79 @@ export default function Dashboard({ onBackToSite }) {
                         </div>
 
                         {/* Change PIN Code */}
-                        <div className="bg-white/[0.02] border border-white/10 rounded-3xl p-8 backdrop-blur-md">
-                            <h4 className="text-base font-bold text-white mb-2">تغيير رمز حماية اللوحة (PIN)</h4>
-                            <p className="text-xs text-neutral-400 mb-6">
-                                الرمز الحالي يمنع أي زائر من الدخول للوحة التحكم. أدخل 4 أرقام جديدة على الأقل لتحديثه.
-                            </p>
+                        <div className="bg-white/[0.02] border border-white/10 rounded-3xl p-8 backdrop-blur-md space-y-6">
+                            <div>
+                                <h4 className="text-base font-bold text-white mb-1">تغيير رمز حماية اللوحة (PIN)</h4>
+                                <p className="text-xs text-neutral-400">
+                                    يتم تشفير الرمز الجديد تلقائياً بتقنية SHA-256 قبل حفظه لضمان أعلى مستوى من الأمان والخصوصية.
+                                </p>
+                            </div>
 
-                            <form onSubmit={handlePinChange} className="flex items-center gap-3">
-                                <input
-                                    type="password"
-                                    value={newPin}
-                                    onChange={(e) => setNewPin(e.target.value)}
-                                    placeholder="الرمز الجديد (مثلاً 1234)"
-                                    className="bg-black/60 border border-white/15 focus:border-white rounded-xl py-2.5 px-4 text-sm text-white focus:outline-none tracking-widest text-center"
-                                />
+                            <form onSubmit={handlePinChange} className="max-w-md space-y-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-neutral-300 mb-1.5">
+                                        رمز المرور الحالي
+                                    </label>
+                                    <input
+                                        type="password"
+                                        value={currentPinInput}
+                                        onChange={(e) => setCurrentPinInput(e.target.value)}
+                                        placeholder="••••••••"
+                                        className="w-full bg-black/60 border border-white/15 focus:border-white rounded-xl py-2.5 px-4 text-sm text-white focus:outline-none tracking-widest"
+                                        required
+                                    />
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-neutral-300 mb-1.5">
+                                            رمز المرور الجديد
+                                        </label>
+                                        <input
+                                            type="password"
+                                            value={newPin}
+                                            onChange={(e) => setNewPin(e.target.value)}
+                                            placeholder="••••••••"
+                                            className="w-full bg-black/60 border border-white/15 focus:border-white rounded-xl py-2.5 px-4 text-sm text-white focus:outline-none tracking-widest"
+                                            required
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-neutral-300 mb-1.5">
+                                            تأكيد الرمز الجديد
+                                        </label>
+                                        <input
+                                            type="password"
+                                            value={confirmPin}
+                                            onChange={(e) => setConfirmPin(e.target.value)}
+                                            placeholder="••••••••"
+                                            className="w-full bg-black/60 border border-white/15 focus:border-white rounded-xl py-2.5 px-4 text-sm text-white focus:outline-none tracking-widest"
+                                            required
+                                        />
+                                    </div>
+                                </div>
+
+                                {pinChangeError && (
+                                    <p className="text-xs text-red-400 font-bold bg-red-500/10 border border-red-500/20 p-2.5 rounded-xl">
+                                        {pinChangeError}
+                                    </p>
+                                )}
+
+                                {pinChangeMsg && (
+                                    <p className="text-xs text-green-400 font-bold bg-green-500/10 border border-green-500/20 p-2.5 rounded-xl">
+                                        {pinChangeMsg}
+                                    </p>
+                                )}
+
                                 <button
                                     type="submit"
-                                    className="px-5 py-2.5 bg-white text-black hover:bg-neutral-200 font-bold text-xs rounded-xl transition-all cursor-pointer"
+                                    disabled={isChangingPin || !currentPinInput || !newPin || !confirmPin}
+                                    className="px-6 py-2.5 bg-white text-black hover:bg-neutral-200 font-bold text-xs rounded-xl transition-all cursor-pointer disabled:opacity-40 flex items-center justify-center gap-2"
                                 >
-                                    تحديث الرمز
+                                    {isChangingPin && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                                    <span>تحديث وتشفير رمز المرور</span>
                                 </button>
                             </form>
-                            {pinChangeMsg && (
-                                <p className="text-xs text-green-400 font-bold mt-3">{pinChangeMsg}</p>
-                            )}
                         </div>
                     </div>
                 )}
