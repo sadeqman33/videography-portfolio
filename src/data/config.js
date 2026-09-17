@@ -57,12 +57,12 @@ export const defaultHeroConfig = {
     secondaryBtnText: "شاهد أعمالي",
     secondaryBtnLink: "#portfolio",
     // 3D Trio Videos
-    centerVideoSlug: "cadillac",
+    centerVideoSlug: "custom_1788708641386",
     centerBadgeTitle: "أحدث الإعلانات",
     centerBadgeSubtitle: "عمل سينمائي مميز",
     centerBadgeQuality: "4K Ultra HD",
-    leftVideoSlug: "charger_superbee",
-    rightVideoSlug: "nissan_patrol",
+    leftVideoSlug: "custom_1788796163572",
+    rightVideoSlug: "custom_1788796253704",
 };
 
 export const defaultSections = [
@@ -76,6 +76,9 @@ export const defaultSections = [
 ];
 
 export const defaultPortfolioItems = [
+    { id: 1788708641386, title: 'سبيد رامب لامبوركيني', slug: 'custom_1788708641386', category: 'سيارات', videoUrl: '/videos/custom_1788708641386/video.mp4', previewUrl: '/videos/custom_1788708641386/preview.mp4', thumbnailUrl: '/videos/custom_1788708641386/thumbnail.jpg' },
+    { id: 1788796163572, title: 'بورش سبيد رامب', slug: 'custom_1788796163572', category: 'سيارات', videoUrl: '/videos/custom_1788796163572/video.mp4', previewUrl: '/videos/custom_1788796163572/preview.mp4', thumbnailUrl: '/videos/custom_1788796163572/thumbnail.jpg' },
+    { id: 1788796253704, title: 'سبيد رامب جي كلاس و bmw', slug: 'custom_1788796253704', category: 'سيارات', videoUrl: '/videos/custom_1788796253704/video.mp4', previewUrl: '/videos/custom_1788796253704/preview.mp4', thumbnailUrl: '/videos/custom_1788796253704/thumbnail.jpg' },
     { id: 1, title: 'دودج تشارجر سوبر بي', slug: 'charger_superbee', category: 'سيارات', videoUrl: '/videos/charger_superbee/video.mp4', previewUrl: '/videos/charger_superbee/preview.mp4', thumbnailUrl: '/videos/charger_superbee/thumbnail.jpg' },
     { id: 2, title: 'كاديلاك إسكاليد', slug: 'cadillac', category: 'سيارات', videoUrl: '/videos/cadillac/video.mp4', previewUrl: '/videos/cadillac/preview.mp4', thumbnailUrl: '/videos/cadillac/thumbnail.jpg' },
     { id: 3, title: 'مرسيدس G-Class', slug: 'g_class', category: 'سيارات', videoUrl: '/videos/g_class/video.mp4', previewUrl: '/videos/g_class/preview.mp4', thumbnailUrl: '/videos/g_class/thumbnail.jpg' },
